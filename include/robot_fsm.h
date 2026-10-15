@@ -65,14 +65,13 @@ class RobotFSM {
   uint8_t btnCount_ = 0;
 
   // follow
-  bool candActive_ = false;
-  uint32_t candStart_ = 0;
-  uint8_t candMask_ = 0;
+  uint32_t lRun_ = 0, rRun_ = 0, allRun_ = 0;   // how long (ms) each condition has been black without a break
+  uint32_t candStart_ = 0;                      // when the junction pattern first appeared
   bool lostActive_ = false;
   uint32_t lostStart_ = 0;
 
   // advance
-  bool leftSeen_ = false, rightSeen_ = false;
+  uint32_t lBlackMs_ = 0, rBlackMs_ = 0;        // black time of the side sensors while crossing
 
   // turn
   uint8_t targetHeading_ = 0;

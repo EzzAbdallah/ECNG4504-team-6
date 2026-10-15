@@ -15,8 +15,8 @@ constexpr uint8_t PIN_IN3 = 24;   // PA2 -> L298N IN3  (right direction)
 constexpr uint8_t PIN_IN4 = 25;   // PA3 -> L298N IN4
 // NOTE: motors.cpp drives IN1..IN4 through PORTA bits 0..3, so they must stay on D22..D25.
 
-// 5-channel line sensor, index 0 = leftmost ... 4 = rightmost
-constexpr uint8_t LINE_PINS[5] = {30, 31, 32, 33, 34};
+// Funduino 3-channel line tracker: index 0 = LEFT, 1 = CENTRE, 2 = RIGHT (looking from behind the robot)
+constexpr uint8_t LINE_PINS[3] = {30, 31, 32};
 constexpr bool LINE_BLACK_IS_HIGH = true;   // flip if the module outputs LOW on black
 
 constexpr uint8_t PIN_START_BTN = 26;       // push button to GND (INPUT_PULLUP)
@@ -37,15 +37,18 @@ constexpr int16_t  ADVANCE_SPEED = 120;     // open-loop speed while crossing a 
 constexpr int16_t  TURN_SPEED    = 120;     // pivot speed
 
 // ============================ LINE FOLLOWING (PID) ===========================
-// error = line position in sensor-index units, range -2..+2 (+ = line to the right)
-constexpr float PID_KP = 40.0f;
+// error = line position: -1 (line under LEFT) .. 0 (centre) .. +1 (line under RIGHT)
+constexpr float PID_KP = 80.0f;
 constexpr float PID_KI = 0.0f;
-constexpr float PID_KD = 0.10f;             // per second
+constexpr float PID_KD = 0.15f;             // per second
 constexpr float PID_I_LIMIT = 50.0f;
 
 // ============================ JUNCTION DETECTION =============================
-constexpr uint8_t  JUNCTION_MIN_BLACK  = 4;    // >=4 of 5 sensors black = junction/corner/circle
-constexpr uint16_t JUNCTION_CONFIRM_MS = 10;   // pattern must persist this long
+// With only 3 sensors a small wobble can also turn LEFT or RIGHT black, so a side sensor alone is
+// trusted only after it stays black for a while (a 3 cm branch keeps it black longer than a wobble).
+constexpr uint16_t ALL3_CONFIRM_MS = 15;   // L+C+R all black (T, cross, circle): wobble cannot do this
+constexpr uint16_t SIDE_CONFIRM_MS = 90;   // L or R alone black this long = branch/corner. TUNE with speed.
+constexpr uint16_t SIDE_MIN_MS     = 60;   // black at least this long while crossing = that exit exists
 constexpr uint16_t JUNCTION_ADVANCE_MS = 180;  // time from first detection until the AXLE is at the
                                                // junction centre. TUNE THIS (depends on where the
                                                // sensor is mounted relative to the wheels).

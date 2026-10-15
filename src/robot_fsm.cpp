@@ -81,7 +81,7 @@ void RobotFSM::pollSerial() {
 }
 
 void RobotFSM::printLine(const LineReading& r) {
-  for (int8_t i = 0; i < 5; i++) Serial.print((r.mask >> i) & 1 ? '#' : '.');
+  for (int8_t i = 0; i < 3; i++) Serial.print((r.mask >> i) & 1 ? '#' : '.');
   Serial.print(F("  count=")); Serial.print(r.count);
   Serial.print(F("  pos=")); Serial.println(r.position, 1);
 }
@@ -115,7 +115,7 @@ void RobotFSM::doIdle(const LineReading& r) {
 void RobotFSM::doLeaveStart(const LineReading& r) {
   const uint32_t now = millis();
   motors_.setSpeeds(cfg::BASE_SPEED, cfg::BASE_SPEED);
-  if (r.count < cfg::JUNCTION_MIN_BLACK) {            // sensor bar left the black circle
+  if (r.count < LineSensor::kNum) {                   // sensor bar left the black circle
     if (!leaveActive_) { leaveActive_ = true; leaveStart_ = now; }
     if (now - leaveStart_ >= cfg::LEAVE_START_CONFIRM_MS) {
       startFollowing();
@@ -129,7 +129,7 @@ void RobotFSM::doLeaveStart(const LineReading& r) {
 
 void RobotFSM::startFollowing() {
   pid_.reset();
-  candActive_ = false;
+  lRun_ = rRun_ = allRun_ = 0;
   lostActive_ = false;
   segStartMs_ = millis();
   enter(State::FOLLOW);
@@ -140,20 +140,24 @@ void RobotFSM::doFollow(const LineReading& r) {
   const uint32_t now = millis();
   const int16_t base = cfg::BASE_SPEED;
 
-  // junction / corner / circle: most sensors black
-  if (r.count >= cfg::JUNCTION_MIN_BLACK) {
-    if (!candActive_) { candActive_ = true; candStart_ = now; candMask_ = 0; }
-    candMask_ |= r.mask;
-    motors_.setSpeeds(base, base);                    // go straight while we confirm
+  // How long has each pattern been black without a break?
+  const uint32_t tickMs = cfg::CONTROL_PERIOD_MS;
+  lRun_   = (r.mask & SENSOR_L) ? lRun_ + tickMs : 0;
+  rRun_   = (r.mask & SENSOR_R) ? rRun_ + tickMs : 0;
+  allRun_ = (r.count >= LineSensor::kNum) ? allRun_ + tickMs : 0;
+
+  // Junction / corner / circle:
+  //  - L+C+R all black can never be a wobble (the line is narrower than the sensor span) -> quick confirm
+  //  - L or R alone could be a wobble -> must stay black SIDE_CONFIRM_MS (a real 3 cm branch does)
+  if (allRun_ >= cfg::ALL3_CONFIRM_MS || lRun_ >= cfg::SIDE_CONFIRM_MS || rRun_ >= cfg::SIDE_CONFIRM_MS) {
+    const uint32_t run = max(allRun_, max(lRun_, rRun_));
+    candStart_ = now - run;                         // moment the pattern first appeared
+    lBlackMs_ = lRun_;
+    rBlackMs_ = rRun_;
     lostActive_ = false;
-    if (now - candStart_ >= cfg::JUNCTION_CONFIRM_MS) {
-      leftSeen_ = candMask_ & SENSOR_S0;
-      rightSeen_ = candMask_ & SENSOR_S4;
-      enter(State::ADVANCE);
-    }
+    enter(State::ADVANCE);
     return;
   }
-  candActive_ = false;
 
   // line lost: dead end if it stays lost
   if (r.count == 0) {
@@ -179,20 +183,22 @@ void RobotFSM::doFollow(const LineReading& r) {
 void RobotFSM::doAdvance(const LineReading& r) {
   const uint32_t now = millis();
   motors_.setSpeeds(cfg::ADVANCE_SPEED, cfg::ADVANCE_SPEED);
-  if (r.mask & SENSOR_S0) leftSeen_ = true;
-  if (r.mask & SENSOR_S4) rightSeen_ = true;
+  if (r.mask & SENSOR_L) lBlackMs_ += cfg::CONTROL_PERIOD_MS;
+  if (r.mask & SENSOR_R) rBlackMs_ += cfg::CONTROL_PERIOD_MS;
   if (now - candStart_ < cfg::JUNCTION_ADVANCE_MS) return;
 
   motors_.stop();
   // The sensor bar is now just past the junction centre:
-  const bool straight = (r.mask & SENSOR_CENTER_MASK) != 0;   // line continues ahead
-  const bool circle = (r.count >= 5);                         // still all black = big circle
+  const bool straight = (r.mask & SENSOR_C) != 0;            // line continues ahead
+  const bool circle = (r.count >= LineSensor::kNum);         // still all black = big circle
+  const bool leftSeen = lBlackMs_ >= cfg::SIDE_MIN_MS;
+  const bool rightSeen = rBlackMs_ >= cfg::SIDE_MIN_MS;
   const uint8_t h = heading_;
   uint8_t exits = dirBit(dirBack(h));
   if (!circle) {
     if (straight)  exits |= dirBit(h);
-    if (leftSeen_) exits |= dirBit(dirLeft(h));
-    if (rightSeen_) exits |= dirBit(dirRight(h));
+    if (leftSeen)  exits |= dirBit(dirLeft(h));
+    if (rightSeen) exits |= dirBit(dirRight(h));
   }
   const uint32_t ticks = candStart_ - segStartMs_ + (firstSegment_ ? 0 : cfg::JUNCTION_ADVANCE_MS);
   handleNode(exits, circle, ticks);
@@ -250,7 +256,7 @@ void RobotFSM::doTurn(const LineReading& r) {
   if (spinLeft_) motors_.setSpeeds(-cfg::TURN_SPEED, cfg::TURN_SPEED);
   else           motors_.setSpeeds(cfg::TURN_SPEED, -cfg::TURN_SPEED);
 
-  const bool s2 = r.mask & SENSOR_S2;
+  const bool s2 = r.mask & SENSOR_C;
   if (s2) {
     if (s2Run_ < 255) s2Run_++;
   } else {

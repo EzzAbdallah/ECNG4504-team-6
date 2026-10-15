@@ -1,20 +1,20 @@
-// line_sensor.h - 5-channel digital line sensor.
+// line_sensor.h - Funduino 3-channel digital line tracker (left, centre, right).
 #pragma once
 #include <Arduino.h>
 
 struct LineReading {
-  uint8_t mask;      // bit i = sensor i sees black (bit0 = leftmost, bit4 = rightmost)
-  uint8_t count;     // number of black sensors
-  float   position;  // -2..+2, weighted centre of the line (+ = line to the right)
+  uint8_t mask;      // bit0 = LEFT, bit1 = CENTRE, bit2 = RIGHT (1 = sees black)
+  uint8_t count;     // number of black sensors (0..3)
+  float   position;  // -1 .. +1, weighted centre of the line (+ = line to the right)
 };
 
-constexpr uint8_t SENSOR_S0 = 0x01;   // outer left
-constexpr uint8_t SENSOR_S2 = 0x04;   // centre
-constexpr uint8_t SENSOR_S4 = 0x10;   // outer right
-constexpr uint8_t SENSOR_CENTER_MASK = 0x0E;  // S1..S3
+constexpr uint8_t SENSOR_L = 0x01;
+constexpr uint8_t SENSOR_C = 0x02;
+constexpr uint8_t SENSOR_R = 0x04;
 
 class LineSensor {
  public:
+  static constexpr uint8_t kNum = 3;
   void begin();
   LineReading read();
  private:
